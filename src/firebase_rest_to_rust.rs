@@ -18,6 +18,9 @@ struct Wrapper {
 
 use serde_json::{map::Map, Number};
 
+use chrono::DateTime;
+use regex::Regex;
+
 /// Converts a firebase google-rpc-api inspired heavily nested and wrapped response value
 /// of the Firebase REST API into a flattened serde json value.
 ///
@@ -53,6 +56,8 @@ pub(crate) fn firebase_value_to_serde_value(v: &dto::Value) -> serde_json::Value
             }
         }
         return Value::Array(vec);
+    } else if let Some(reference_value) = v.reference_value.as_ref() {
+        return Value::String(reference_value.clone());
     }
     Value::Null
 }
@@ -84,9 +89,25 @@ pub(crate) fn serde_value_to_firebase_value(v: &serde_json::Value) -> dto::Value
             ..Default::default()
         };
     } else if let Some(string_value) = v.as_str() {
-        return dto::Value {
-            string_value: Some(string_value.to_owned()),
-            ..Default::default()
+        return match DateTime::parse_from_rfc3339(string_value) {
+            Ok(_) => dto::Value {
+                timestamp_value: Some(string_value.to_owned()),
+                ..Default::default()
+            },
+            Err(_) => {
+                let reference_re = Regex::new(r"^projects/.*/databases/.*/documents/.*$").unwrap();
+                if reference_re.is_match(string_value) {
+                    dto::Value {
+                        reference_value: Some(string_value.to_owned()),
+                        ..Default::default()
+                    }
+                } else {
+                    dto::Value {
+                        string_value: Some(string_value.to_owned()),
+                        ..Default::default()
+                    }
+                }
+            }
         };
     } else if let Some(boolean_value) = v.as_bool() {
         return dto::Value {
